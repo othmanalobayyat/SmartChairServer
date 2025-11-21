@@ -8,22 +8,23 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// استقبال بيانات ESP32
-app.post("/data", (req, res) => {
-  console.log("📩 Received from ESP32:", req.body);
-  res.send("✔️ Data received");
-});
-
-// صفحة فحص
+// اختبار HTTP
 app.get("/", (req, res) => {
-  res.send("SmartChair server is running (WS enabled)");
+  res.send("SmartChair server is running (HTTP OK, WS OK)");
 });
 
 // ===== إنشاء HTTP Server =====
 const server = http.createServer(app);
 
 // ===== WebSocket =====
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({ noServer: true });
+
+// نسمح بالـ upgrade (مطلوب لRailway)
+server.on("upgrade", (req, socket, head) => {
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    wss.emit("connection", ws, req);
+  });
+});
 
 wss.on("connection", (ws) => {
   console.log("🔗 Camera connected");
@@ -33,7 +34,7 @@ wss.on("connection", (ws) => {
       const data = JSON.parse(msg);
       console.log("🎥 Camera Data Received:", data);
 
-      // بث البيانات لكل الأجهزة
+      // بث البيانات لكل العملاء
       wss.clients.forEach((client) => {
         if (client.readyState === WebSocket.OPEN) {
           client.send(JSON.stringify(data));
