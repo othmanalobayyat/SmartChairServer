@@ -8,30 +8,47 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-app.get("/", (req, res) => {
-  res.send("SmartChair server running (Railway hosted)...");
+// استقبال بيانات ESP32
+app.post("/data", (req, res) => {
+  console.log("📩 Received from ESP32:", req.body);
+  res.send("✔️ Data received");
 });
 
-// إنشاء HTTP Server
+// صفحة فحص
+app.get("/", (req, res) => {
+  res.send("SmartChair server is running (WS enabled)");
+});
+
+// ===== إنشاء HTTP Server =====
 const server = http.createServer(app);
 
-// إنشاء WebSocket فوق السيرفر
-const wss = new WebSocket.Server({ server, path: "/ws" });
+// ===== WebSocket =====
+const wss = new WebSocket.Server({ server });
 
-// عند اتصال الكاميرا
 wss.on("connection", (ws) => {
   console.log("🔗 Camera connected");
 
   ws.on("message", (msg) => {
-    console.log("🎥 Received:", msg);
+    try {
+      const data = JSON.parse(msg);
+      console.log("🎥 Camera Data Received:", data);
+
+      // بث البيانات لكل الأجهزة
+      wss.clients.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(JSON.stringify(data));
+        }
+      });
+
+    } catch (err) {
+      console.log("WS Error:", err);
+    }
   });
 
-  ws.on("close", () => {
-    console.log("❌ Camera disconnected");
-  });
+  ws.on("close", () => console.log("❌ Camera disconnected"));
 });
 
-// Railway يعطي PORT عبر المتغيرات:
+// ===== Railway PORT =====
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, () => {
