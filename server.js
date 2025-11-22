@@ -8,48 +8,89 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// اختبار HTTP
+// استقبال بيانات ESP32
+app.post("/data", (req, res) => {
+  console.log("📩 Received from ESP32:", req.body);
+  res.send("✔️ Data received");
+});
+
+// صفحة فحص
 app.get("/", (req, res) => {
-  res.send("SmartChair server is running (HTTP OK, WS OK)");
+  res.send("SmartChair server running (WebSocket enabled)");
 });
 
-// ===== إنشاء HTTP Server =====
 const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 
-// ===== WebSocket =====
-const wss = new WebSocket.Server({ noServer: true });
+// نخزّن اتصال الكاميرا فقط
+let cameraSocket = null;
 
-// نسمح بالـ upgrade (مطلوب لRailway)
-server.on("upgrade", (req, socket, head) => {
-  wss.handleUpgrade(req, socket, head, (ws) => {
-    wss.emit("connection", ws, req);
-  });
-});
+// ====== heartbeat لإبقاء الاتصال حي ======
+function heartbeat() {
+  this.isAlive = true;
+}
 
+// connection
 wss.on("connection", (ws) => {
-  console.log("🔗 Camera connected");
+  console.log("🔗 Device connected");
+  ws.isAlive = true;
+  ws.on("pong", heartbeat);
 
   ws.on("message", (msg) => {
-    try {
-      const data = JSON.parse(msg);
-      console.log("🎥 Camera Data Received:", data);
+    const data = JSON.parse(msg);
 
-      // بث البيانات لكل العملاء
-      wss.clients.forEach((client) => {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify(data));
-        }
+    // الكاميرا
+    if (data.device_id === "cam_01") {
+      cameraSocket = ws;
+      console.log("🎥 Camera Connected!");
+
+      broadcast({
+        type: "camera_status",
+        active: true,
       });
 
-    } catch (err) {
-      console.log("WS Error:", err);
+      broadcast(data);
+      return;
     }
+
+    // أي جهاز آخر مثل الموبايل
   });
 
-  ws.on("close", () => console.log("❌ Camera disconnected"));
+  ws.on("close", () => {
+    if (ws === cameraSocket) {
+      console.log("❌ Camera disconnected");
+      cameraSocket = null;
+
+      broadcast({
+        type: "camera_status",
+        active: false,
+      });
+    }
+  });
 });
 
-// ===== Railway PORT =====
+// ====== Ping كل 30 ثانية ======
+const interval = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (!ws.isAlive) return ws.terminate(); // إذا ما رد ينقطع
+    ws.isAlive = false;
+    ws.ping(); // مهم جداً على Railway
+  });
+}, 30000);
+
+wss.on("close", () => clearInterval(interval));
+
+// broadcast
+function broadcast(obj) {
+  const msg = JSON.stringify(obj);
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(msg);
+    }
+  });
+}
+
+// ====== أهم شيء: Railway PORT ======
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, () => {
