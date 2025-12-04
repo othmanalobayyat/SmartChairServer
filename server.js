@@ -8,41 +8,59 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
+// ==============================
+// 🔧 SERVER ROLE
+// ==============================
+const SERVER_ROLE = process.env.SERVER_ROLE || "primary"; 
+// local → primary
+// railway → backup
+
 // استقبال بيانات ESP32
 app.post("/data", (req, res) => {
-  console.log("📩 Received from ESP32:", req.body);
-  res.send("✔️ Data received");
+  console.log("📩 ESP32:", req.body);
+  res.send("OK");
 });
 
-// صفحة فحص
 app.get("/", (req, res) => {
-  res.send("SmartChair server running (WebSocket enabled)");
+  res.send(`SmartChair Server (${SERVER_ROLE})`);
 });
 
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// نخزّن اتصال الكاميرا فقط
 let cameraSocket = null;
 
-// ====== heartbeat لإبقاء الاتصال حي ======
+function broadcast(obj) {
+  const msg = JSON.stringify(obj);
+  wss.clients.forEach((c) => {
+    if (c.readyState === WebSocket.OPEN) {
+      c.send(msg);
+    }
+  });
+}
+
 function heartbeat() {
   this.isAlive = true;
 }
 
-// connection
 wss.on("connection", (ws) => {
-  console.log("🔗 Device connected");
   ws.isAlive = true;
   ws.on("pong", heartbeat);
+
+  // ⬅️ أول شي نبعت دور السيرفر
+  ws.send(
+    JSON.stringify({
+      type: "server_role",
+      role: SERVER_ROLE,
+    })
+  );
 
   ws.on("message", (msg) => {
     const data = JSON.parse(msg);
 
-    // الكاميرا
+    // 🎥 كاميرا
     if (data.device_id === "cam_01") {
       cameraSocket = ws;
-      console.log("🎥 Camera Connected!");
 
       broadcast({
         type: "camera_status",
@@ -50,17 +68,12 @@ wss.on("connection", (ws) => {
       });
 
       broadcast(data);
-      return;
     }
-
-    // أي جهاز آخر مثل الموبايل
   });
 
   ws.on("close", () => {
     if (ws === cameraSocket) {
-      console.log("❌ Camera disconnected");
       cameraSocket = null;
-
       broadcast({
         type: "camera_status",
         active: false,
@@ -69,30 +82,16 @@ wss.on("connection", (ws) => {
   });
 });
 
-// ====== Ping كل 30 ثانية ======
-const interval = setInterval(() => {
+// Heartbeat
+setInterval(() => {
   wss.clients.forEach((ws) => {
-    if (!ws.isAlive) return ws.terminate(); // إذا ما رد ينقطع
+    if (!ws.isAlive) return ws.terminate();
     ws.isAlive = false;
-    ws.ping(); // مهم جداً على Railway
+    ws.ping();
   });
 }, 30000);
 
-wss.on("close", () => clearInterval(interval));
-
-// broadcast
-function broadcast(obj) {
-  const msg = JSON.stringify(obj);
-  wss.clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(msg);
-    }
-  });
-}
-
-// ====== أهم شيء: Railway PORT ======
 const PORT = process.env.PORT || 3000;
-
-server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+server.listen(PORT, () =>
+  console.log(`🚀 ${SERVER_ROLE.toUpperCase()} server on ${PORT}`)
+);
