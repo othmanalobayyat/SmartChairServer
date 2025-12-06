@@ -1,41 +1,76 @@
+// ==============================
+// 📦 IMPORTS
+// ==============================
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const bodyParser = require("body-parser");
 const http = require("http");
 const WebSocket = require("ws");
+const mongoose = require("mongoose");
 
+// 🔥 NEW: import auth routes
+const authRoutes = require("./routes/authRoutes");
+
+
+// ==============================
+// 🌐 CONNECT TO MONGODB ATLAS
+// ==============================
+mongoose
+  .connect(process.env.MONGO_URI)
+  .then(() => console.log("✅ Connected to MongoDB Atlas"))
+  .catch((err) => console.error("❌ MongoDB connection error:", err));
+
+
+// ==============================
+// 🚀 EXPRESS APP INIT
+// ==============================
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
+// 🔥 Enable auth routes → http://localhost:3000/auth/*
+app.use("/auth", authRoutes);
+
+
 // ==============================
 // 🔧 SERVER ROLE
 // ==============================
-const SERVER_ROLE = process.env.SERVER_ROLE || "primary"; 
+const SERVER_ROLE = process.env.SERVER_ROLE || "primary";
 // local → primary
 // railway → backup
 
-// استقبال بيانات ESP32
+
+// ==============================
+// 📩 ESP32 ENDPOINT
+// ==============================
 app.post("/data", (req, res) => {
   console.log("📩 ESP32:", req.body);
   res.send("OK");
 });
 
+
+// ==============================
+// 🏠 BASE ENDPOINT
+// ==============================
 app.get("/", (req, res) => {
   res.send(`SmartChair Server (${SERVER_ROLE})`);
 });
 
+
+// ==============================
+// 🧵 WEBSOCKET SERVER
+// ==============================
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 let cameraSocket = null;
 
+// Send to all connected clients
 function broadcast(obj) {
   const msg = JSON.stringify(obj);
   wss.clients.forEach((c) => {
-    if (c.readyState === WebSocket.OPEN) {
-      c.send(msg);
-    }
+    if (c.readyState === WebSocket.OPEN) c.send(msg);
   });
 }
 
@@ -47,7 +82,7 @@ wss.on("connection", (ws) => {
   ws.isAlive = true;
   ws.on("pong", heartbeat);
 
-  // ⬅️ أول شي نبعت دور السيرفر
+  // Send server role immediately when a client connects
   ws.send(
     JSON.stringify({
       type: "server_role",
@@ -58,7 +93,7 @@ wss.on("connection", (ws) => {
   ws.on("message", (msg) => {
     const data = JSON.parse(msg);
 
-    // 🎥 كاميرا
+    // 🎥 Camera: device_id = cam_01
     if (data.device_id === "cam_01") {
       cameraSocket = ws;
 
@@ -82,7 +117,9 @@ wss.on("connection", (ws) => {
   });
 });
 
-// Heartbeat
+// ==============================
+// ❤️ HEARTBEAT CHECK
+// ==============================
 setInterval(() => {
   wss.clients.forEach((ws) => {
     if (!ws.isAlive) return ws.terminate();
@@ -91,6 +128,10 @@ setInterval(() => {
   });
 }, 30000);
 
+
+// ==============================
+// 🌍 START SERVER
+// ==============================
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () =>
   console.log(`🚀 ${SERVER_ROLE.toUpperCase()} server on ${PORT}`)
