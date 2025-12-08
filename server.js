@@ -12,7 +12,6 @@ const mongoose = require("mongoose");
 // 🔥 NEW: import auth routes
 const authRoutes = require("./routes/authRoutes");
 
-
 // ==============================
 // 🌐 CONNECT TO MONGODB ATLAS
 // ==============================
@@ -20,7 +19,6 @@ mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log("✅ Connected to MongoDB Atlas"))
   .catch((err) => console.error("❌ MongoDB connection error:", err));
-
 
 // ==============================
 // 🚀 EXPRESS APP INIT
@@ -32,14 +30,12 @@ app.use(bodyParser.json());
 // 🔥 Enable auth routes → http://localhost:3000/auth/*
 app.use("/auth", authRoutes);
 
-
 // ==============================
 // 🔧 SERVER ROLE
 // ==============================
 const SERVER_ROLE = process.env.SERVER_ROLE || "primary";
 // local → primary
 // railway → backup
-
 
 // ==============================
 // 📩 ESP32 ENDPOINT
@@ -49,14 +45,12 @@ app.post("/data", (req, res) => {
   res.send("OK");
 });
 
-
 // ==============================
 // 🏠 BASE ENDPOINT
 // ==============================
 app.get("/", (req, res) => {
   res.send(`SmartChair Server (${SERVER_ROLE})`);
 });
-
 
 // ==============================
 // 🧵 WEBSOCKET SERVER
@@ -93,6 +87,18 @@ wss.on("connection", (ws) => {
   ws.on("message", (msg) => {
     const data = JSON.parse(msg);
 
+    // 🟢 CHAIR DEVICE
+    if (data.device_id === "chair_01") {
+      broadcast({
+        type: "chair_data",
+        pressures: data.pressures || null,
+        posture: data.posture || null,
+        battery: data.battery || null,
+      });
+
+      return;
+    }
+
     // 🎥 Camera: device_id = cam_01
     if (data.device_id === "cam_01") {
       cameraSocket = ws;
@@ -127,7 +133,6 @@ setInterval(() => {
     ws.ping();
   });
 }, 30000);
-
 
 // ==============================
 // 🌍 START SERVER
