@@ -18,27 +18,33 @@ const authRoutes = require("./routes/authRoutes");
 const connectLocal = require("./connections_local");
 const { local } = connectLocal();
 
-const Session = local.model("Session", require("./models_local/Session"));
+let Session = null;
+let PressureFrame = null;
+let CameraFrame = null;
+let PostureEvent = null;
+let LocalDailyStats = null;
 
-const PressureFrame = local.model(
-  "PressureFrame",
-  require("./models_local/PressureFrame")
-);
-
-const CameraFrame = local.model(
-  "CameraFrame",
-  require("./models_local/CameraFrame")
-);
-
-const PostureEvent = local.model(
-  "PostureEvent",
-  require("./models_local/PostureEvent")
-);
-
-const LocalDailyStats = local.model(
-  "LocalDailyStats",
-  require("./models_local/LocalDailyStats")
-);
+if (local) {
+  Session = local.model("Session", require("./models_local/Session"));
+  PressureFrame = local.model(
+    "PressureFrame",
+    require("./models_local/PressureFrame")
+  );
+  CameraFrame = local.model(
+    "CameraFrame",
+    require("./models_local/CameraFrame")
+  );
+  PostureEvent = local.model(
+    "PostureEvent",
+    require("./models_local/PostureEvent")
+  );
+  LocalDailyStats = local.model(
+    "LocalDailyStats",
+    require("./models_local/LocalDailyStats")
+  );
+} else {
+  console.warn("⚠️ Local DB disabled (Railway or offline)");
+}
 
 // ==============================
 // 🌐 CONNECT TO MONGODB ATLAS
@@ -62,6 +68,10 @@ app.use("/auth", authRoutes);
 // 🧪 LOCAL DB TEST (READ ONLY)
 // ==============================
 app.get("/local-db/status", async (req, res) => {
+  if (!local) {
+    return res.json({ local_db: "disabled" });
+  }
+
   try {
     const collections = await local.db.listCollections().toArray();
     res.json({
@@ -70,7 +80,7 @@ app.get("/local-db/status", async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({
-      local_db: "not_connected",
+      local_db: "error",
       error: err.message,
     });
   }
