@@ -40,19 +40,15 @@ router.post("/login", async (req, res) => {
     const { email, password } = req.body;
 
     const user = await User.findOne({ email });
-    if (!user)
-      return res.status(400).json({ message: "Invalid credentials" });
+    if (!user) return res.status(400).json({ message: "Invalid credentials" });
 
     const match = await bcrypt.compare(password, user.password);
-    if (!match)
-      return res.status(400).json({ message: "Invalid credentials" });
+    if (!match) return res.status(400).json({ message: "Invalid credentials" });
 
     // إصدار التوكن
-    const token = jwt.sign(
-      { id: user._id, email: user.email },
-      JWT_SECRET,
-      { expiresIn: "7d" }
-    );
+    const token = jwt.sign({ id: user._id, email: user.email }, JWT_SECRET, {
+      expiresIn: "7d",
+    });
 
     res.json({
       token,
@@ -60,6 +56,7 @@ router.post("/login", async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email,
+        avatar: user.avatar || null,
       },
     });
   } catch (err) {
@@ -72,17 +69,22 @@ router.post("/login", async (req, res) => {
 // ==============================
 router.put("/update-profile", auth, async (req, res) => {
   try {
-    const { name, email } = req.body;
+    const { name, email, avatar } = req.body;
 
-    const existing = await User.findOne({ email, _id: { $ne: req.user.id } });
+    // تحقق من الإيميل
+    const existing = await User.findOne({
+      email,
+      _id: { $ne: req.user.id },
+    });
     if (existing)
       return res.status(400).json({ message: "Email already used" });
 
-    const user = await User.findByIdAndUpdate(
-      req.user.id,
-      { name, email },
-      { new: true }
-    );
+    const update = { name, email };
+    if (avatar !== undefined) update.avatar = avatar;
+
+    const user = await User.findByIdAndUpdate(req.user.id, update, {
+      new: true,
+    });
 
     res.json({
       success: true,
@@ -90,6 +92,7 @@ router.put("/update-profile", auth, async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email,
+        avatar: user.avatar || null,
       },
     });
   } catch (err) {
@@ -120,6 +123,5 @@ router.put("/change-password", auth, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 
 module.exports = router;
