@@ -13,6 +13,34 @@ const mongoose = require("mongoose");
 const authRoutes = require("./routes/authRoutes");
 
 // ==============================
+// 🗄️ LOCAL DATABASE (OFFLINE)
+// ==============================
+const connectLocal = require("./connections_local");
+const { local } = connectLocal();
+
+const Session = local.model("Session", require("./models_local/Session"));
+
+const PressureFrame = local.model(
+  "PressureFrame",
+  require("./models_local/PressureFrame")
+);
+
+const CameraFrame = local.model(
+  "CameraFrame",
+  require("./models_local/CameraFrame")
+);
+
+const PostureEvent = local.model(
+  "PostureEvent",
+  require("./models_local/PostureEvent")
+);
+
+const LocalDailyStats = local.model(
+  "LocalDailyStats",
+  require("./models_local/LocalDailyStats")
+);
+
+// ==============================
 // 🌐 CONNECT TO MONGODB ATLAS
 // ==============================
 mongoose
@@ -29,6 +57,24 @@ app.use(bodyParser.json());
 
 // 🔥 Enable auth routes → http://localhost:3000/auth/*
 app.use("/auth", authRoutes);
+
+// ==============================
+// 🧪 LOCAL DB TEST (READ ONLY)
+// ==============================
+app.get("/local-db/status", async (req, res) => {
+  try {
+    const collections = await local.db.listCollections().toArray();
+    res.json({
+      local_db: "connected",
+      collections: collections.map((c) => c.name),
+    });
+  } catch (err) {
+    res.status(500).json({
+      local_db: "not_connected",
+      error: err.message,
+    });
+  }
+});
 
 // ==============================
 // 🔧 SERVER ROLE
