@@ -164,7 +164,10 @@ wss.on("connection", (ws) => {
         active: true,
       });
 
-      broadcast(data);
+      broadcast({
+        type: "camera_frame", // ← تأكيد النوع
+        ...data,
+      });
     }
   });
 
