@@ -157,7 +157,6 @@ wss.on("connection", (ws) => {
 
     // 🎥 Camera: device_id = cam_01
     if (data.device_id === "cam_01") {
-      console.log("🎥 CAMERA DATA:", data);
       cameraSocket = ws;
 
       broadcast({
