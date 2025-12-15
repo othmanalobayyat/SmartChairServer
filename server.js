@@ -143,6 +143,17 @@ wss.on("connection", (ws) => {
   ws.on("message", (msg) => {
     const data = JSON.parse(msg);
 
+    // 🎛️ CAMERA CONTROL FROM MOBILE
+    if (data.type === "camera_control") {
+      if (cameraSocket && cameraSocket.readyState === WebSocket.OPEN) {
+        cameraSocket.send(JSON.stringify(data));
+        console.log("🎛️ camera_control forwarded to camera:", data.action);
+      } else {
+        console.warn("⚠️ camera_control received but camera not connected");
+      }
+      return;
+    }
+
     // 🟢 CHAIR DEVICE
     if (data.device_id === "chair_01") {
       broadcast({
