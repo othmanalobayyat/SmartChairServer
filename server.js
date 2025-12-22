@@ -9,7 +9,7 @@ const http = require("http");
 const WebSocket = require("ws");
 const mongoose = require("mongoose");
 
-// 🔥 NEW: import auth routes
+// 🔐 Auth routes
 const authRoutes = require("./routes/authRoutes");
 
 // ==============================
@@ -61,11 +61,16 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// 🔥 Enable auth routes → http://localhost:3000/auth/*
+// Auth routes
 app.use("/auth", authRoutes);
 
 // ==============================
-// 🧪 LOCAL DB TEST (READ ONLY)
+// 🔧 SERVER ROLE
+// ==============================
+const SERVER_ROLE = process.env.SERVER_ROLE || "primary";
+
+// ==============================
+// 🧪 LOCAL DB STATUS
 // ==============================
 app.get("/local-db/status", async (req, res) => {
   if (!local) {
@@ -87,21 +92,6 @@ app.get("/local-db/status", async (req, res) => {
 });
 
 // ==============================
-// 🔧 SERVER ROLE
-// ==============================
-const SERVER_ROLE = process.env.SERVER_ROLE || "primary";
-// local → primary
-// railway → backup
-
-// ==============================
-// 📩 ESP32 ENDPOINT
-// ==============================
-app.post("/data", (req, res) => {
-  console.log("📩 ESP32:", req.body);
-  res.send("OK");
-});
-
-// ==============================
 // 🏠 BASE ENDPOINT
 // ==============================
 app.get("/", (req, res) => {
@@ -116,23 +106,20 @@ const wss = new WebSocket.Server({ server });
 
 let cameraSocket = null;
 
-// Send to all connected clients
-function broadcast(obj) {
-  const msg = JSON.stringify(obj);
-  wss.clients.forEach((c) => {
-    if (c.readyState === WebSocket.OPEN) c.send(msg);
+// Broadcast helper
+function broadcast(payload) {
+  const msg = JSON.stringify(payload);
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(msg);
+    }
   });
 }
 
-function heartbeat() {
-  this.isAlive = true;
-}
-
 wss.on("connection", (ws) => {
-  ws.isAlive = true;
-  ws.on("pong", heartbeat);
+  console.log("🔌 WebSocket client connected");
 
-  // Send server role immediately when a client connects
+  // Send server role immediately
   ws.send(
     JSON.stringify({
       type: "server_role",
@@ -141,20 +128,17 @@ wss.on("connection", (ws) => {
   );
 
   ws.on("message", (msg) => {
-    const data = JSON.parse(msg);
-
-    // 🎛️ CAMERA CONTROL FROM MOBILE
-    if (data.type === "camera_control") {
-      if (cameraSocket && cameraSocket.readyState === WebSocket.OPEN) {
-        cameraSocket.send(JSON.stringify(data));
-        console.log("🎛️ camera_control forwarded to camera:", data.action);
-      } else {
-        console.warn("⚠️ camera_control received but camera not connected");
-      }
+    let data;
+    try {
+      data = JSON.parse(msg);
+    } catch (e) {
+      console.warn("⚠️ Invalid JSON received");
       return;
     }
 
-    // 🟢 CHAIR DEVICE
+    // =========================
+    // 🪑 CHAIR DEVICE
+    // =========================
     if (data.device_id === "chair_01") {
       broadcast({
         type: "chair_data",
@@ -162,13 +146,18 @@ wss.on("connection", (ws) => {
         posture: data.posture || null,
         battery: data.battery || null,
       });
-
       return;
     }
 
-    // 🎥 Camera: device_id = cam_01
+    // =========================
+    // 🎥 CAMERA DEVICE
+    // =========================
     if (data.device_id === "cam_01") {
-      cameraSocket = ws;
+      // Register camera socket once
+      if (cameraSocket !== ws) {
+        cameraSocket = ws;
+        console.log("🎥 Camera registered");
+      }
 
       broadcast({
         type: "camera_status",
@@ -176,38 +165,34 @@ wss.on("connection", (ws) => {
       });
 
       broadcast({
-        type: "camera_frame", // ← تأكيد النوع
+        type: "camera_frame",
         ...data,
       });
+
+      return;
     }
   });
 
   ws.on("close", () => {
+    console.log("❌ WebSocket client disconnected");
+
     if (ws === cameraSocket) {
       cameraSocket = null;
+
       broadcast({
         type: "camera_status",
         active: false,
       });
+
+      console.log("🎥 Camera disconnected");
     }
   });
 });
 
 // ==============================
-// ❤️ HEARTBEAT CHECK
-// ==============================
-setInterval(() => {
-  wss.clients.forEach((ws) => {
-    if (!ws.isAlive) return ws.terminate();
-    ws.isAlive = false;
-    ws.ping();
-  });
-}, 30000);
-
-// ==============================
 // 🌍 START SERVER
 // ==============================
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () =>
-  console.log(`🚀 ${SERVER_ROLE.toUpperCase()} server on ${PORT}`)
-);
+server.listen(PORT, () => {
+  console.log(`🚀 ${SERVER_ROLE.toUpperCase()} server running on port ${PORT}`);
+});
