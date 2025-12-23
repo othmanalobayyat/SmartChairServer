@@ -1,19 +1,18 @@
 const express = require("express");
 const router = express.Router();
 const turso = require("../db/turso");
+const auth = require("../middleware/auth"); // نفس middleware المستخدم في AuthRoutes
 
-// GET /api/stats/summary?user_id=...
-router.get("/summary", async (req, res) => {
+// ==============================
+// GET /api/stats/summary
+// ==============================
+router.get("/summary", auth, async (req, res) => {
   try {
-    const { user_id } = req.query;
-    if (!user_id) {
-      return res.status(400).json({ error: "user_id is required" });
-    }
+    const user_id = req.user.id; // 👈 من JWT
 
-    // اليوم الحالي (YYYY-MM-DD)
     const day = new Date().toISOString().slice(0, 10);
 
-    // 1) جلب score اليوم
+    // 1) score اليوم
     const summaryRes = await turso.execute({
       sql: `
         SELECT score
@@ -23,9 +22,9 @@ router.get("/summary", async (req, res) => {
       args: [user_id, day],
     });
 
-    const score = summaryRes.rows[0]?.score ?? null;
+    const score = summaryRes.rows[0]?.score ?? 0;
 
-    // 2) إحصائيات الجلسات لليوم
+    // 2) إحصائيات الجلسات
     const sessionsRes = await turso.execute({
       sql: `
         SELECT
@@ -57,13 +56,12 @@ router.get("/summary", async (req, res) => {
   }
 });
 
-// GET /api/stats/history?user_id=...
-router.get("/history", async (req, res) => {
+// ==============================
+// GET /api/stats/history
+// ==============================
+router.get("/history", auth, async (req, res) => {
   try {
-    const { user_id } = req.query;
-    if (!user_id) {
-      return res.status(400).json({ error: "user_id is required" });
-    }
+    const user_id = req.user.id; // 👈 من JWT
 
     const result = await turso.execute({
       sql: `
