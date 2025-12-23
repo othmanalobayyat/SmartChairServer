@@ -65,9 +65,22 @@ app.use(bodyParser.json());
 app.use("/auth", authRoutes);
 
 // ==============================
+// 🗄️ TURSO (CLOUD SQLITE)
+// ==============================
+const turso = require("./db/turso");
+
+const sessionRoutes = require("./routes/sessionRoutes");
+app.use("/api/session", sessionRoutes);
+
+const statsRoutes = require("./routes/statsRoutes");
+app.use("/api/stats", statsRoutes);
+
+// ==============================
 // 🔧 SERVER ROLE
 // ==============================
 const SERVER_ROLE = process.env.SERVER_ROLE || "primary";
+
+// Local DB kept for future offline buffering (not used currently)
 
 // ==============================
 // 🧪 LOCAL DB STATUS
