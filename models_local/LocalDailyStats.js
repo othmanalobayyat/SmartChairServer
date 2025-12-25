@@ -1,3 +1,4 @@
+//models_local/LocalDailyStats.js
 const mongoose = require("mongoose");
 
 const LocalDailyStatsSchema = new mongoose.Schema({

@@ -1,3 +1,4 @@
+//models_local/CameraFrame.js
 const mongoose = require("mongoose");
 
 const CameraFrameSchema = new mongoose.Schema({

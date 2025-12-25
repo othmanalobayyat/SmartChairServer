@@ -9,6 +9,9 @@ const http = require("http");
 const WebSocket = require("ws");
 const mongoose = require("mongoose");
 
+//Gemini routes
+const chatRoutes = require("./routes/chatRoutes");
+
 // 🔐 Auth routes
 const authRoutes = require("./routes/authRoutes");
 
@@ -60,6 +63,8 @@ mongoose
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
+
+app.use("/chat", chatRoutes);
 
 // Auth routes
 app.use("/auth", authRoutes);
