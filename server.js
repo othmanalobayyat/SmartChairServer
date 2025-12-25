@@ -69,6 +69,9 @@ app.use("/chat", chatRoutes);
 // Auth routes
 app.use("/auth", authRoutes);
 
+const chairIngestRoutes = require("./routes/chairIngestRoutes");
+app.use("/api/chair", chairIngestRoutes);
+
 // ==============================
 // 🗄️ TURSO (CLOUD SQLITE)
 // ==============================
@@ -133,6 +136,9 @@ function broadcast(payload) {
     }
   });
 }
+
+// expose broadcast to routes
+app.set("broadcast", broadcast);
 
 wss.on("connection", (ws) => {
   console.log("🔌 WebSocket client connected");
