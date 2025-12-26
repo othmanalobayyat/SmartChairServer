@@ -124,6 +124,7 @@ const wss = new WebSocket.Server({
   server,
   path: "/ws",
 });
+wss = new WebSocket.Server({ server });
 
 let cameraSocket = null;
 
