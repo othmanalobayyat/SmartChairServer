@@ -121,8 +121,7 @@ app.get("/", (req, res) => {
 // ==============================
 const server = http.createServer(app);
 const wss = new WebSocket.Server({
-  server,
-  path: "/ws",
+  server
 });
 
 let cameraSocket = null;
