@@ -100,7 +100,13 @@ router.get("/list", auth, async (req, res) => {
     // 👤 user_id من التوكن
     const user_id = req.user.id;
 
-    const day = new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    const day =
+      now.getFullYear() +
+      "-" +
+      String(now.getMonth() + 1).padStart(2, "0") +
+      "-" +
+      String(now.getDate()).padStart(2, "0");
 
     const result = await turso.execute({
       sql: `
