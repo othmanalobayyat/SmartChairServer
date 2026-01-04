@@ -1,4 +1,6 @@
-// Server.js
+// ==============================
+// Server.js – DEMO SAFE VERSION
+// ==============================
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
@@ -7,164 +9,85 @@ const http = require("http");
 const WebSocket = require("ws");
 const mongoose = require("mongoose");
 
-// Routes
-const chatRoutes = require("./routes/chatRoutes");
-const authRoutes = require("./routes/authRoutes");
-
 // ==============================
-// 🗄️ LOCAL DATABASE (OFFLINE)
-// ==============================
-const connectLocal = require("./connections_local");
-const { local } = connectLocal();
-
-if (!local) {
-  console.warn("⚠️ Local DB disabled (Railway or offline)");
-}
-
-// ==============================
-// 🌐 CONNECT TO MONGODB ATLAS
-// ==============================
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ Connected to MongoDB Atlas"))
-  .catch((err) => console.error("❌ MongoDB connection error:", err.message));
-
-// ==============================
-// 🚀 EXPRESS APP INIT
+// EXPRESS
 // ==============================
 const app = express();
-
 app.use(cors({ origin: "*", credentials: true }));
 app.use(bodyParser.json());
 
-// Routes
-app.use("/chat", chatRoutes);
-app.use("/auth", authRoutes);
-
-// TURSO
+// Routes (كما هي)
+app.use("/chat", require("./routes/chatRoutes"));
+app.use("/auth", require("./routes/authRoutes"));
 require("./db/turso");
-
-const sessionRoutes = require("./routes/sessionRoutes");
-const statsRoutes = require("./routes/statsRoutes");
-
-app.use("/api/session", sessionRoutes);
-app.use("/api/stats", statsRoutes);
+app.use("/api/session", require("./routes/sessionRoutes"));
+app.use("/api/stats", require("./routes/statsRoutes"));
 
 // ==============================
-// 🔧 SERVER ROLE
+// MONGO
 // ==============================
-const SERVER_ROLE = process.env.SERVER_ROLE || "primary";
+mongoose
+  .connect(process.env.MONGO_URI)
+  .then(() => console.log("✅ MongoDB connected"))
+  .catch(() => console.warn("⚠️ MongoDB skipped (ok for demo)"));
 
 // ==============================
-// 🏠 BASE ENDPOINT
-// ==============================
-app.get("/", (req, res) => {
-  res.send(`SmartChair Server (${SERVER_ROLE})`);
-});
-
-// ==============================
-// 🧵 WEBSOCKET SERVER (FIXED)
+// HTTP + WS
 // ==============================
 const server = http.createServer(app);
-
-// ❗❗❗ أهم سطر
-const wss = new WebSocket.Server({ server }); // ← بدون path
+const wss = new WebSocket.Server({ server });
 
 let chairSocket = null;
 
 // ==============================
-// 📤 BROADCAST
-// ==============================
-function broadcast(payload) {
-  const msg = JSON.stringify(payload);
-  wss.clients.forEach((c) => {
-    if (c.readyState === WebSocket.OPEN) {
-      c.send(msg);
-    }
-  });
-}
-
-// ==============================
-// 🔌 WS CONNECTION
+// WS
 // ==============================
 wss.on("connection", (ws, req) => {
-  const ip = req.socket.remoteAddress;
-  console.log("🟢 WS connected from", ip);
-
-  ws.isAlive = true;
-  ws.on("pong", () => (ws.isAlive = true));
+  console.log("🟢 WS connected", req.socket.remoteAddress);
 
   ws.on("message", (msg) => {
     const raw = msg.toString();
-    console.log("📥 RAW:", raw);
+    console.log("📥", raw);
 
     let data;
     try {
       data = JSON.parse(raw);
     } catch {
-      console.warn("❌ Invalid JSON");
       return;
     }
 
-    // ===== CHAIR =====
     if (data.device_id === "chair_01") {
       chairSocket = ws;
 
-      console.log("🪑 Chair state:", data.state);
+      console.log("🪑 STATE:", data.state, "| present:", data.present);
 
-      broadcast({
-        type: "chair_state",
-        present: data.present,
-        state: data.state,
-        pressures: data.pressures,
-        timestamp: Date.now(),
+      // broadcast للتطبيق
+      wss.clients.forEach((c) => {
+        if (c.readyState === WebSocket.OPEN) {
+          c.send(
+            JSON.stringify({
+              type: "chair_state",
+              present: data.present,
+              state: data.state,
+              pressures: data.pressures,
+              ts: Date.now(),
+            })
+          );
+        }
       });
     }
   });
 
   ws.on("close", () => {
-    console.log("🔴 WS disconnected", ip);
-
-    if (ws === chairSocket) {
-      chairSocket = null;
-      broadcast({
-        type: "chair_state",
-        present: false,
-        state: "empty",
-        pressures: null,
-        timestamp: Date.now(),
-      });
-    }
+    console.log("🔴 WS disconnected");
+    if (ws === chairSocket) chairSocket = null;
   });
 });
 
 // ==============================
-// ❤️ HEARTBEAT (Cloudflare safe)
-// ==============================
-setInterval(() => {
-  wss.clients.forEach((ws) => {
-    if (!ws.isAlive) return ws.terminate();
-    ws.isAlive = false;
-    ws.ping();
-  });
-}, 25000);
-
-// ==============================
-// 🌐 START SERVER
+// START
 // ==============================
 const PORT = process.env.PORT || 3000;
-
 server.listen(PORT, "0.0.0.0", () => {
-  console.log("=".repeat(60));
-  console.log(`🚀 ${SERVER_ROLE.toUpperCase()} SERVER STARTED`);
-  console.log(`📍 Port: ${PORT}`);
-  console.log("=".repeat(60));
-});
-
-// ==============================
-// 🛑 GRACEFUL SHUTDOWN
-// ==============================
-process.on("SIGTERM", () => {
-  console.log("🛑 SIGTERM received");
-  server.close(() => process.exit(0));
+  console.log("🚀 SERVER RUNNING ON", PORT);
 });
