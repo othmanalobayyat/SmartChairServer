@@ -213,10 +213,10 @@ wss.on("connection", (ws, req) => {
   );
 
   // Heartbeat mechanism to detect dead connections
-  ws.isAlive = true;
-  ws.on("pong", () => {
-    ws.isAlive = true;
-  });
+  //ws.isAlive = true;
+  //ws.on("pong", () => {
+  //  ws.isAlive = true;
+  //});
 
   ws.on("message", (msg) => {
     let data;
@@ -328,7 +328,7 @@ wss.on("connection", (ws, req) => {
 });
 
 // Ping all clients every 30 seconds to detect dead connections
-const heartbeatInterval = setInterval(() => {
+/*const heartbeatInterval = setInterval(() => {
   wss.clients.forEach((ws) => {
     if (ws.isAlive === false) {
       console.log("💀 Terminating dead connection");
@@ -338,11 +338,11 @@ const heartbeatInterval = setInterval(() => {
     ws.isAlive = false;
     ws.ping();
   });
-}, 30000);
+}, 30000);*/
 
-wss.on("close", () => {
+/*wss.on("close", () => {
   clearInterval(heartbeatInterval);
-});
+});*/
 
 // ==============================
 // 🌐 START SERVER
