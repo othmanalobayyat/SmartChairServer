@@ -173,14 +173,6 @@ wss.on("connection", (ws, req) => {
     }
 
     // =========================
-    // 📱 MOBILE APP
-    // =========================
-    if (data.device_id === "mobile_app") {
-      console.log("📱 Mobile app registered");
-      return;
-    }
-
-    // =========================
     // 🪑 CHAIR DEVICE
     // =========================
     if (data.device_id === "chair_01") {
