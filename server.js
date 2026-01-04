@@ -120,7 +120,7 @@ app.get("/", (req, res) => {
 // 🧵 WEBSOCKET SERVER
 // ==============================
 const server = http.createServer(app);
-const wss = new WebSocket.Server({server});
+const wss = new WebSocket.Server({ server });
 
 let cameraSocket = null;
 
@@ -211,6 +211,6 @@ wss.on("connection", (ws) => {
 // 🌍 START SERVER
 // ==============================
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
+server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 ${SERVER_ROLE.toUpperCase()} server running on port ${PORT}`);
 });
