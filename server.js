@@ -181,14 +181,21 @@ wss.on("connection", (ws, req) => {
         console.log("🪑 Chair device registered");
       }
 
-      broadcast({
-        type: "chair_data",
-        pressures: data.pressures || null,
-        posture: data.posture || null,
-        battery: data.battery || null,
-        state: data.state || "unknown",
-        timestamp: Date.now(),
-      });
+      if (data.state === "idle") {
+        broadcast({
+          type: "chair_idle",
+          timestamp: Date.now(),
+        });
+      } else {
+        broadcast({
+          type: "chair_data",
+          pressures: data.pressures || null,
+          posture: data.posture || null,
+          battery: data.battery || null,
+          state: data.state || "active",
+          timestamp: Date.now(),
+        });
+      }
       return;
     }
 
