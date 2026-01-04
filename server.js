@@ -1,7 +1,4 @@
 // Server.js
-// ==============================
-// 📦 IMPORTS
-// ==============================
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
@@ -20,31 +17,7 @@ const authRoutes = require("./routes/authRoutes");
 const connectLocal = require("./connections_local");
 const { local } = connectLocal();
 
-let Session = null;
-let PressureFrame = null;
-let CameraFrame = null;
-let PostureEvent = null;
-let LocalDailyStats = null;
-
-if (local) {
-  Session = local.model("Session", require("./models_local/Session"));
-  PressureFrame = local.model(
-    "PressureFrame",
-    require("./models_local/PressureFrame")
-  );
-  CameraFrame = local.model(
-    "CameraFrame",
-    require("./models_local/CameraFrame")
-  );
-  PostureEvent = local.model(
-    "PostureEvent",
-    require("./models_local/PostureEvent")
-  );
-  LocalDailyStats = local.model(
-    "LocalDailyStats",
-    require("./models_local/LocalDailyStats")
-  );
-} else {
+if (!local) {
   console.warn("⚠️ Local DB disabled (Railway or offline)");
 }
 
@@ -67,16 +40,13 @@ app.use(
     credentials: true,
   })
 );
-
 app.use(bodyParser.json());
 
 // Routes
 app.use("/chat", chatRoutes);
 app.use("/auth", authRoutes);
 
-// ==============================
-// 🗄️ TURSO (CLOUD SQLITE)
-// ==============================
+// TURSO
 require("./db/turso");
 
 const sessionRoutes = require("./routes/sessionRoutes");
@@ -115,8 +85,10 @@ function broadcast(payload) {
   let sent = 0;
   wss.clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
-      client.send(msg);
-      sent++;
+      try {
+        client.send(msg);
+        sent++;
+      } catch (e) {}
     }
   });
 
@@ -130,15 +102,11 @@ wss.on("connection", (ws, req) => {
   const clientIP = req.socket.remoteAddress;
   console.log(`🔌 WebSocket client connected from ${clientIP}`);
 
-  // ======================
-  // ❤️ HEARTBEAT INIT
-  // ======================
+  // ❤️ heartbeat per-socket
   ws.isAlive = true;
-  ws.on("pong", () => {
-    ws.isAlive = true;
-  });
+  ws.on("pong", () => (ws.isAlive = true));
 
-  // Initial handshake messages
+  // handshake
   ws.send(
     JSON.stringify({
       type: "server_role",
@@ -146,7 +114,6 @@ wss.on("connection", (ws, req) => {
       timestamp: Date.now(),
     })
   );
-
   ws.send(
     JSON.stringify({
       type: "connection_established",
@@ -154,23 +121,22 @@ wss.on("connection", (ws, req) => {
     })
   );
 
-  // ======================
-  // 📥 MESSAGE HANDLER
-  // ======================
   ws.on("message", (msg) => {
-    console.log("🔥 RAW MESSAGE:", msg.toString());
+    const raw = msg.toString();
+    console.log("🔥 RAW MESSAGE:", raw);
 
     let data;
     try {
-      data = JSON.parse(msg.toString());
-      console.log(
-        `📥 Received from ${clientIP}:`,
-        data.device_id || data.type || "unknown"
-      );
-    } catch (err) {
+      data = JSON.parse(raw);
+    } catch {
       console.warn(`⚠️ Invalid JSON from ${clientIP}`);
       return;
     }
+
+    console.log(
+      `📥 Received from ${clientIP}:`,
+      data.device_id || data.type || "unknown"
+    );
 
     // =========================
     // 🪑 CHAIR DEVICE
@@ -181,14 +147,41 @@ wss.on("connection", (ws, req) => {
         console.log("🪑 Chair device registered");
       }
 
+      // baseline event
+      if (data.event === "baseline_captured") {
+        broadcast({
+          type: "chair_baseline",
+          state: data.state || "baseline_ready",
+          baseline_raw: data.baseline_raw || null,
+          timestamp: Date.now(),
+        });
+        return;
+      }
+
+      // presence event
+      if (data.event === "presence") {
+        broadcast({
+          type: "chair_presence",
+          present: !!data.present,
+          state: data.state || (data.present ? "user_present" : "no_user"),
+          timestamp: Date.now(),
+        });
+        return;
+      }
+
+      // chair_data event (default)
+      // (حتى لو ما بعت event، بنعامله chair_data لمرونة)
       broadcast({
         type: "chair_data",
         pressures: data.pressures || null,
         posture: data.posture || null,
         battery: data.battery || null,
         state: data.state || "unknown",
+        lrDiff: typeof data.lrDiff === "number" ? data.lrDiff : null,
+        front: typeof data.front === "number" ? data.front : null,
         timestamp: Date.now(),
       });
+
       return;
     }
 
@@ -223,10 +216,7 @@ wss.on("connection", (ws, req) => {
         console.log(`📷 Camera control: ${data.action}`);
       } else {
         ws.send(
-          JSON.stringify({
-            type: "error",
-            message: "Camera not connected",
-          })
+          JSON.stringify({ type: "error", message: "Camera not connected" })
         );
       }
       return;
@@ -235,15 +225,18 @@ wss.on("connection", (ws, req) => {
     console.warn(`⚠️ Unknown message from ${clientIP}`, data);
   });
 
-  // ======================
-  // ❌ DISCONNECT
-  // ======================
   ws.on("close", () => {
     console.log(`❌ WebSocket client disconnected: ${clientIP}`);
 
     if (ws === chairSocket) {
       chairSocket = null;
       console.log("🪑 Chair device disconnected");
+      broadcast({
+        type: "chair_presence",
+        present: false,
+        state: "chair_disconnected",
+        timestamp: Date.now(),
+      });
     }
 
     if (ws === cameraSocket) {
@@ -259,7 +252,7 @@ wss.on("connection", (ws, req) => {
 });
 
 // ==============================
-// ❤️ GLOBAL HEARTBEAT (CLOUDFLARE SAFE)
+// ❤️ GLOBAL HEARTBEAT (Cloudflare safe)
 // ==============================
 const heartbeatInterval = setInterval(() => {
   wss.clients.forEach((ws) => {
@@ -267,15 +260,12 @@ const heartbeatInterval = setInterval(() => {
       console.log("💀 Terminating dead WebSocket");
       return ws.terminate();
     }
-
     ws.isAlive = false;
     ws.ping();
   });
-}, 25000); // < 30s required by Cloudflare
+}, 25000);
 
-wss.on("close", () => {
-  clearInterval(heartbeatInterval);
-});
+wss.on("close", () => clearInterval(heartbeatInterval));
 
 // ==============================
 // 🌐 START SERVER
