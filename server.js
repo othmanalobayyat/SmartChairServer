@@ -34,12 +34,7 @@ mongoose
 // ==============================
 const app = express();
 
-app.use(
-  cors({
-    origin: "*",
-    credentials: true,
-  })
-);
+app.use(cors({ origin: "*", credentials: true }));
 app.use(bodyParser.json());
 
 // Routes
@@ -68,207 +63,91 @@ app.get("/", (req, res) => {
 });
 
 // ==============================
-// 🧵 WEBSOCKET SERVER
+// 🧵 WEBSOCKET SERVER (FIXED)
 // ==============================
 const server = http.createServer(app);
-const wss = new WebSocket.Server({
-  server,
-  path: "/ws",
-});
+
+// ❗❗❗ أهم سطر
+const wss = new WebSocket.Server({ server }); // ← بدون path
 
 let chairSocket = null;
-let cameraSocket = null;
 
 // ==============================
-// 📤 BROADCAST HELPER
+// 📤 BROADCAST
 // ==============================
 function broadcast(payload) {
   const msg = JSON.stringify(payload);
-
-  let sent = 0;
-  wss.clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) {
-      try {
-        client.send(msg);
-        sent++;
-      } catch (e) {}
+  wss.clients.forEach((c) => {
+    if (c.readyState === WebSocket.OPEN) {
+      c.send(msg);
     }
   });
-
-  console.log(`📤 Broadcasted ${payload.type} to ${sent} client(s)`);
 }
 
 // ==============================
 // 🔌 WS CONNECTION
 // ==============================
 wss.on("connection", (ws, req) => {
-  const clientIP = req.socket.remoteAddress;
-  console.log(`🔌 WebSocket client connected from ${clientIP}`);
+  const ip = req.socket.remoteAddress;
+  console.log("🟢 WS connected from", ip);
 
-  // ❤️ heartbeat per-socket
   ws.isAlive = true;
   ws.on("pong", () => (ws.isAlive = true));
 
-  // handshake
-  ws.send(
-    JSON.stringify({
-      type: "server_role",
-      role: SERVER_ROLE,
-      timestamp: Date.now(),
-    })
-  );
-  ws.send(
-    JSON.stringify({
-      type: "connection_established",
-      serverTime: new Date().toISOString(),
-    })
-  );
-
   ws.on("message", (msg) => {
     const raw = msg.toString();
-    console.log("🔥 RAW MESSAGE:", raw);
+    console.log("📥 RAW:", raw);
 
     let data;
     try {
       data = JSON.parse(raw);
     } catch {
-      console.warn(`⚠️ Invalid JSON from ${clientIP}`);
+      console.warn("❌ Invalid JSON");
       return;
     }
 
-    console.log(
-      `📥 Received from ${clientIP}:`,
-      data.device_id || data.type || "unknown"
-    );
-
-    // =========================
-    // 🪑 CHAIR DEVICE
-    // =========================
+    // ===== CHAIR =====
     if (data.device_id === "chair_01") {
-      if (chairSocket !== ws) {
-        chairSocket = ws;
-        console.log("🪑 Chair device registered");
-      }
+      chairSocket = ws;
 
-      // baseline event
-      if (data.event === "baseline_captured") {
-        broadcast({
-          type: "chair_baseline",
-          state: data.state || "baseline_ready",
-          baseline_raw: data.baseline_raw || null,
-          timestamp: Date.now(),
-        });
-        return;
-      }
-
-      // presence event
-      if (data.event === "presence") {
-        broadcast({
-          type: "chair_presence",
-          present: !!data.present,
-          state: data.state || (data.present ? "user_present" : "no_user"),
-          timestamp: Date.now(),
-        });
-        return;
-      }
-
-      // chair_data event (default)
-      // (حتى لو ما بعت event، بنعامله chair_data لمرونة)
-      broadcast({
-        type: "chair_data",
-        pressures: data.pressures || null,
-        posture: data.posture || null,
-        battery: data.battery || null,
-        state: data.state || "unknown",
-        lrDiff: typeof data.lrDiff === "number" ? data.lrDiff : null,
-        front: typeof data.front === "number" ? data.front : null,
-        timestamp: Date.now(),
-      });
-
-      return;
-    }
-
-    // =========================
-    // 🎥 CAMERA DEVICE
-    // =========================
-    if (data.device_id === "cam_01") {
-      if (cameraSocket !== ws) {
-        cameraSocket = ws;
-        console.log("🎥 Camera device registered");
-      }
-
-      broadcast({ type: "camera_status", active: true });
+      console.log("🪑 Chair state:", data.state);
 
       broadcast({
-        type: "camera_frame",
-        attention_level: data.attention_level,
-        is_present: data.is_present,
-        drowsy: data.drowsy,
-        working_duration_seconds: data.working_duration_seconds,
+        type: "chair_state",
+        present: data.present,
+        state: data.state,
+        pressures: data.pressures,
         timestamp: Date.now(),
       });
-      return;
     }
-
-    // =========================
-    // 📱 MOBILE APP CONTROL
-    // =========================
-    if (data.type === "camera_control") {
-      if (cameraSocket && cameraSocket.readyState === WebSocket.OPEN) {
-        cameraSocket.send(JSON.stringify(data));
-        console.log(`📷 Camera control: ${data.action}`);
-      } else {
-        ws.send(
-          JSON.stringify({ type: "error", message: "Camera not connected" })
-        );
-      }
-      return;
-    }
-
-    console.warn(`⚠️ Unknown message from ${clientIP}`, data);
   });
 
   ws.on("close", () => {
-    console.log(`❌ WebSocket client disconnected: ${clientIP}`);
+    console.log("🔴 WS disconnected", ip);
 
     if (ws === chairSocket) {
       chairSocket = null;
-      console.log("🪑 Chair device disconnected");
       broadcast({
-        type: "chair_presence",
+        type: "chair_state",
         present: false,
-        state: "chair_disconnected",
+        state: "empty",
+        pressures: null,
         timestamp: Date.now(),
       });
     }
-
-    if (ws === cameraSocket) {
-      cameraSocket = null;
-      broadcast({ type: "camera_status", active: false });
-      console.log("🎥 Camera device disconnected");
-    }
-  });
-
-  ws.on("error", (err) => {
-    console.error(`❌ WebSocket error from ${clientIP}:`, err.message);
   });
 });
 
 // ==============================
-// ❤️ GLOBAL HEARTBEAT (Cloudflare safe)
+// ❤️ HEARTBEAT (Cloudflare safe)
 // ==============================
-const heartbeatInterval = setInterval(() => {
+setInterval(() => {
   wss.clients.forEach((ws) => {
-    if (ws.isAlive === false) {
-      console.log("💀 Terminating dead WebSocket");
-      return ws.terminate();
-    }
+    if (!ws.isAlive) return ws.terminate();
     ws.isAlive = false;
     ws.ping();
   });
 }, 25000);
-
-wss.on("close", () => clearInterval(heartbeatInterval));
 
 // ==============================
 // 🌐 START SERVER
@@ -276,20 +155,16 @@ wss.on("close", () => clearInterval(heartbeatInterval));
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log("\n" + "=".repeat(60));
+  console.log("=".repeat(60));
   console.log(`🚀 ${SERVER_ROLE.toUpperCase()} SERVER STARTED`);
   console.log(`📍 Port: ${PORT}`);
-  console.log("=".repeat(60) + "\n");
+  console.log("=".repeat(60));
 });
 
 // ==============================
 // 🛑 GRACEFUL SHUTDOWN
 // ==============================
 process.on("SIGTERM", () => {
-  console.log("🛑 SIGTERM received, shutting down...");
-  clearInterval(heartbeatInterval);
-  server.close(() => {
-    console.log("✅ Server closed");
-    process.exit(0);
-  });
+  console.log("🛑 SIGTERM received");
+  server.close(() => process.exit(0));
 });
