@@ -1,3 +1,4 @@
+// Server.js
 // ==============================
 // 📦 IMPORTS
 // ==============================
@@ -19,7 +20,31 @@ const authRoutes = require("./routes/authRoutes");
 const connectLocal = require("./connections_local");
 const { local } = connectLocal();
 
-if (!local) {
+let Session = null;
+let PressureFrame = null;
+let CameraFrame = null;
+let PostureEvent = null;
+let LocalDailyStats = null;
+
+if (local) {
+  Session = local.model("Session", require("./models_local/Session"));
+  PressureFrame = local.model(
+    "PressureFrame",
+    require("./models_local/PressureFrame")
+  );
+  CameraFrame = local.model(
+    "CameraFrame",
+    require("./models_local/CameraFrame")
+  );
+  PostureEvent = local.model(
+    "PostureEvent",
+    require("./models_local/PostureEvent")
+  );
+  LocalDailyStats = local.model(
+    "LocalDailyStats",
+    require("./models_local/LocalDailyStats")
+  );
+} else {
   console.warn("⚠️ Local DB disabled (Railway or offline)");
 }
 
@@ -39,6 +64,7 @@ const app = express();
 app.use(
   cors({
     origin: "*",
+    credentials: true,
   })
 );
 
@@ -53,8 +79,11 @@ app.use("/auth", authRoutes);
 // ==============================
 require("./db/turso");
 
-app.use("/api/session", require("./routes/sessionRoutes"));
-app.use("/api/stats", require("./routes/statsRoutes"));
+const sessionRoutes = require("./routes/sessionRoutes");
+const statsRoutes = require("./routes/statsRoutes");
+
+app.use("/api/session", sessionRoutes);
+app.use("/api/stats", statsRoutes);
 
 // ==============================
 // 🔧 SERVER ROLE
@@ -78,12 +107,12 @@ let chairSocket = null;
 let cameraSocket = null;
 
 // ==============================
-// 📤 BROADCAST
+// 📤 BROADCAST HELPER
 // ==============================
 function broadcast(payload) {
   const msg = JSON.stringify(payload);
-  let sent = 0;
 
+  let sent = 0;
   wss.clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
       client.send(msg);
@@ -91,9 +120,7 @@ function broadcast(payload) {
     }
   });
 
-  if (sent > 0) {
-    console.log(`📤 Broadcasted ${payload.type} to ${sent} client(s)`);
-  }
+  console.log(`📤 Broadcasted ${payload.type} to ${sent} client(s)`);
 }
 
 // ==============================
@@ -103,7 +130,15 @@ wss.on("connection", (ws, req) => {
   const clientIP = req.socket.remoteAddress;
   console.log(`🔌 WebSocket client connected from ${clientIP}`);
 
-  // Handshake
+  // ======================
+  // ❤️ HEARTBEAT INIT
+  // ======================
+  ws.isAlive = true;
+  ws.on("pong", () => {
+    ws.isAlive = true;
+  });
+
+  // Initial handshake messages
   ws.send(
     JSON.stringify({
       type: "server_role",
@@ -119,18 +154,21 @@ wss.on("connection", (ws, req) => {
     })
   );
 
-  // =========================
+  // ======================
   // 📥 MESSAGE HANDLER
-  // =========================
+  // ======================
   ws.on("message", (msg) => {
-    const raw = msg.toString();
-    console.log("🔥 RAW MESSAGE:", raw);
+    console.log("🔥 RAW MESSAGE:", msg.toString());
 
     let data;
     try {
-      data = JSON.parse(raw);
-    } catch {
-      console.warn("⚠️ Invalid JSON received");
+      data = JSON.parse(msg.toString());
+      console.log(
+        `📥 Received from ${clientIP}:`,
+        data.device_id || data.type || "unknown"
+      );
+    } catch (err) {
+      console.warn(`⚠️ Invalid JSON from ${clientIP}`);
       return;
     }
 
@@ -142,12 +180,6 @@ wss.on("connection", (ws, req) => {
         chairSocket = ws;
         console.log("🪑 Chair device registered");
       }
-
-      console.log("🪑 Chair Data:", {
-        pressures: data.pressures,
-        posture: data.posture,
-        battery: data.battery,
-      });
 
       broadcast({
         type: "chair_data",
@@ -200,12 +232,12 @@ wss.on("connection", (ws, req) => {
       return;
     }
 
-    console.warn("⚠️ Unknown message:", data);
+    console.warn(`⚠️ Unknown message from ${clientIP}`, data);
   });
 
-  // =========================
+  // ======================
   // ❌ DISCONNECT
-  // =========================
+  // ======================
   ws.on("close", () => {
     console.log(`❌ WebSocket client disconnected: ${clientIP}`);
 
@@ -222,8 +254,27 @@ wss.on("connection", (ws, req) => {
   });
 
   ws.on("error", (err) => {
-    console.error("❌ WebSocket error:", err.message);
+    console.error(`❌ WebSocket error from ${clientIP}:`, err.message);
   });
+});
+
+// ==============================
+// ❤️ GLOBAL HEARTBEAT (CLOUDFLARE SAFE)
+// ==============================
+const heartbeatInterval = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) {
+      console.log("💀 Terminating dead WebSocket");
+      return ws.terminate();
+    }
+
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, 25000); // < 30s required by Cloudflare
+
+wss.on("close", () => {
+  clearInterval(heartbeatInterval);
 });
 
 // ==============================
@@ -243,6 +294,7 @@ server.listen(PORT, "0.0.0.0", () => {
 // ==============================
 process.on("SIGTERM", () => {
   console.log("🛑 SIGTERM received, shutting down...");
+  clearInterval(heartbeatInterval);
   server.close(() => {
     console.log("✅ Server closed");
     process.exit(0);
