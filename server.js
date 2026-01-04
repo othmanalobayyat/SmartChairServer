@@ -1,4 +1,4 @@
-//Server.js
+// Server.js
 // ==============================
 // 📦 IMPORTS
 // ==============================
@@ -11,10 +11,8 @@ const WebSocket = require("ws");
 const mongoose = require("mongoose");
 const os = require("os");
 
-//Gemini routes
+// Routes
 const chatRoutes = require("./routes/chatRoutes");
-
-// 🔐 Auth routes
 const authRoutes = require("./routes/authRoutes");
 
 // ==============================
@@ -64,7 +62,6 @@ mongoose
 // ==============================
 const app = express();
 
-// 🔧 CORS FIX - Allow all origins for local development
 app.use(
   cors({
     origin: "*",
@@ -74,20 +71,19 @@ app.use(
 
 app.use(bodyParser.json());
 
+// Routes
 app.use("/chat", chatRoutes);
-
-// Auth routes
 app.use("/auth", authRoutes);
 
 // ==============================
 // 🗄️ TURSO (CLOUD SQLITE)
 // ==============================
-const turso = require("./db/turso");
+require("./db/turso");
 
 const sessionRoutes = require("./routes/sessionRoutes");
-app.use("/api/session", sessionRoutes);
-
 const statsRoutes = require("./routes/statsRoutes");
+
+app.use("/api/session", sessionRoutes);
 app.use("/api/stats", statsRoutes);
 
 // ==============================
@@ -99,9 +95,7 @@ const SERVER_ROLE = process.env.SERVER_ROLE || "primary";
 // 🧪 LOCAL DB STATUS
 // ==============================
 app.get("/local-db/status", async (req, res) => {
-  if (!local) {
-    return res.json({ local_db: "disabled" });
-  }
+  if (!local) return res.json({ local_db: "disabled" });
 
   try {
     const collections = await local.db.listCollections().toArray();
@@ -110,10 +104,7 @@ app.get("/local-db/status", async (req, res) => {
       collections: collections.map((c) => c.name),
     });
   } catch (err) {
-    res.status(500).json({
-      local_db: "error",
-      error: err.message,
-    });
+    res.status(500).json({ local_db: "error", error: err.message });
   }
 });
 
@@ -125,76 +116,37 @@ app.get("/", (req, res) => {
 });
 
 // ==============================
-// 🔍 NETWORK INFO ENDPOINT
-// ==============================
-app.get("/network-info", (req, res) => {
-  const interfaces = os.networkInterfaces();
-  const addresses = [];
-
-  for (const name of Object.keys(interfaces)) {
-    for (const iface of interfaces[name]) {
-      if (iface.family === "IPv4" && !iface.internal) {
-        addresses.push({
-          interface: name,
-          address: iface.address,
-        });
-      }
-    }
-  }
-
-  res.json({
-    serverRole: SERVER_ROLE,
-    port: PORT,
-    wsUrl: `ws://${addresses[0]?.address || "localhost"}:${PORT}`,
-    localIPs: addresses,
-  });
-});
-
-// ==============================
 // 🧵 WEBSOCKET SERVER
 // ==============================
 const server = http.createServer(app);
-const wss = new WebSocket.Server({
-  server,
-  // Properly handle WebSocket upgrade
-  verifyClient: (info, callback) => {
-    console.log(
-      `📡 WebSocket connection attempt from: ${info.origin || "unknown"}`
-    );
-    callback(true); // Accept all connections for local demo
-  },
-});
+const wss = new WebSocket.Server({ server });
 
 let cameraSocket = null;
 let chairSocket = null;
 
-// Broadcast helper with error handling
+// ==============================
+// 📤 BROADCAST HELPER
+// ==============================
 function broadcast(payload) {
   const msg = JSON.stringify(payload);
-  let sent = 0;
 
   wss.clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
-      try {
-        client.send(msg);
-        sent++;
-      } catch (err) {
-        console.error("❌ Error broadcasting to client:", err.message);
-      }
+      client.send(msg);
     }
   });
 
-  // Log broadcast stats for debugging
-  if (sent > 0) {
-    console.log(`📤 Broadcasted ${payload.type} to ${sent} client(s)`);
-  }
+  console.log(`📤 Broadcasted ${payload.type}`);
 }
 
+// ==============================
+// 🔌 WS CONNECTION
+// ==============================
 wss.on("connection", (ws, req) => {
   const clientIP = req.socket.remoteAddress;
   console.log(`🔌 WebSocket client connected from ${clientIP}`);
 
-  // Send server role immediately
+  // Initial messages
   ws.send(
     JSON.stringify({
       type: "server_role",
@@ -203,7 +155,6 @@ wss.on("connection", (ws, req) => {
     })
   );
 
-  // Send connection confirmation
   ws.send(
     JSON.stringify({
       type: "connection_established",
@@ -212,16 +163,15 @@ wss.on("connection", (ws, req) => {
     })
   );
 
-  // Heartbeat mechanism to detect dead connections
-  //ws.isAlive = true;
-  //ws.on("pong", () => {
-  //  ws.isAlive = true;
-  //});
-
+  // =========================
+  // 📥 MESSAGE HANDLER
+  // =========================
   ws.on("message", (msg) => {
+    console.log("🔥 RAW MESSAGE:", msg.toString());
+
     let data;
     try {
-      data = JSON.parse(msg);
+      data = JSON.parse(msg.toString());
       console.log(
         `📥 Received from ${clientIP}:`,
         data.device_id || data.type || "unknown"
@@ -255,16 +205,12 @@ wss.on("connection", (ws, req) => {
     // 🎥 CAMERA DEVICE
     // =========================
     if (data.device_id === "cam_01") {
-      // Register camera socket once
       if (cameraSocket !== ws) {
         cameraSocket = ws;
         console.log("🎥 Camera device registered");
       }
 
-      broadcast({
-        type: "camera_status",
-        active: true,
-      });
+      broadcast({ type: "camera_status", active: true });
 
       broadcast({
         type: "camera_frame",
@@ -274,7 +220,6 @@ wss.on("connection", (ws, req) => {
         working_duration_seconds: data.working_duration_seconds,
         timestamp: Date.now(),
       });
-
       return;
     }
 
@@ -296,53 +241,31 @@ wss.on("connection", (ws, req) => {
       return;
     }
 
-    // =========================
-    // ❓ UNKNOWN MESSAGE
-    // =========================
-    console.warn(`⚠️ Unknown message type from ${clientIP}:`, data);
+    console.warn(`⚠️ Unknown message type from ${clientIP}`, data);
   });
 
+  // =========================
+  // ❌ DISCONNECT
+  // =========================
   ws.on("close", () => {
     console.log(`❌ WebSocket client disconnected: ${clientIP}`);
-
-    if (ws === cameraSocket) {
-      cameraSocket = null;
-
-      broadcast({
-        type: "camera_status",
-        active: false,
-      });
-
-      console.log("🎥 Camera device disconnected");
-    }
 
     if (ws === chairSocket) {
       chairSocket = null;
       console.log("🪑 Chair device disconnected");
     }
+
+    if (ws === cameraSocket) {
+      cameraSocket = null;
+      broadcast({ type: "camera_status", active: false });
+      console.log("🎥 Camera device disconnected");
+    }
   });
 
-  ws.on("error", (error) => {
-    console.error(`❌ WebSocket error from ${clientIP}:`, error.message);
+  ws.on("error", (err) => {
+    console.error(`❌ WebSocket error from ${clientIP}:`, err.message);
   });
 });
-
-// Ping all clients every 30 seconds to detect dead connections
-/*const heartbeatInterval = setInterval(() => {
-  wss.clients.forEach((ws) => {
-    if (ws.isAlive === false) {
-      console.log("💀 Terminating dead connection");
-      return ws.terminate();
-    }
-
-    ws.isAlive = false;
-    ws.ping();
-  });
-}, 30000);*/
-
-/*wss.on("close", () => {
-  clearInterval(heartbeatInterval);
-});*/
 
 // ==============================
 // 🌐 START SERVER
@@ -352,27 +275,13 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, "0.0.0.0", () => {
   console.log("\n" + "=".repeat(60));
   console.log(`🚀 ${SERVER_ROLE.toUpperCase()} SERVER STARTED`);
-  console.log("=".repeat(60));
   console.log(`📍 Port: ${PORT}`);
-  console.log(`🌐 Mode: LOCAL NETWORK`);
-
-  // Display all local IP addresses
-  const interfaces = os.networkInterfaces();
-  console.log("\n📡 Connect devices to:");
-
-  for (const name of Object.keys(interfaces)) {
-    for (const iface of interfaces[name]) {
-      if (iface.family === "IPv4" && !iface.internal) {
-        console.log(`   ws://${iface.address}:${PORT}`);
-      }
-    }
-  }
-
-  console.log("\n📱 Update ESP32 and Python app to use one of these URLs");
   console.log("=".repeat(60) + "\n");
 });
 
-// Graceful shutdown
+// ==============================
+// 🛑 GRACEFUL SHUTDOWN
+// ==============================
 process.on("SIGTERM", () => {
   console.log("🛑 SIGTERM received, closing server...");
   server.close(() => {
