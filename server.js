@@ -9,7 +9,6 @@ const bodyParser = require("body-parser");
 const http = require("http");
 const WebSocket = require("ws");
 const mongoose = require("mongoose");
-const os = require("os");
 
 // Routes
 const chatRoutes = require("./routes/chatRoutes");
@@ -55,7 +54,7 @@ if (local) {
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log("✅ Connected to MongoDB Atlas"))
-  .catch((err) => console.error("❌ MongoDB connection error:", err));
+  .catch((err) => console.error("❌ MongoDB connection error:", err.message));
 
 // ==============================
 // 🚀 EXPRESS APP INIT
@@ -92,23 +91,6 @@ app.use("/api/stats", statsRoutes);
 const SERVER_ROLE = process.env.SERVER_ROLE || "primary";
 
 // ==============================
-// 🧪 LOCAL DB STATUS
-// ==============================
-app.get("/local-db/status", async (req, res) => {
-  if (!local) return res.json({ local_db: "disabled" });
-
-  try {
-    const collections = await local.db.listCollections().toArray();
-    res.json({
-      local_db: "connected",
-      collections: collections.map((c) => c.name),
-    });
-  } catch (err) {
-    res.status(500).json({ local_db: "error", error: err.message });
-  }
-});
-
-// ==============================
 // 🏠 BASE ENDPOINT
 // ==============================
 app.get("/", (req, res) => {
@@ -121,8 +103,8 @@ app.get("/", (req, res) => {
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-let cameraSocket = null;
 let chairSocket = null;
+let cameraSocket = null;
 
 // ==============================
 // 📤 BROADCAST HELPER
@@ -130,13 +112,15 @@ let chairSocket = null;
 function broadcast(payload) {
   const msg = JSON.stringify(payload);
 
+  let sent = 0;
   wss.clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
       client.send(msg);
+      sent++;
     }
   });
 
-  console.log(`📤 Broadcasted ${payload.type}`);
+  console.log(`📤 Broadcasted ${payload.type} to ${sent} client(s)`);
 }
 
 // ==============================
@@ -146,7 +130,15 @@ wss.on("connection", (ws, req) => {
   const clientIP = req.socket.remoteAddress;
   console.log(`🔌 WebSocket client connected from ${clientIP}`);
 
-  // Initial messages
+  // ======================
+  // ❤️ HEARTBEAT INIT
+  // ======================
+  ws.isAlive = true;
+  ws.on("pong", () => {
+    ws.isAlive = true;
+  });
+
+  // Initial handshake messages
   ws.send(
     JSON.stringify({
       type: "server_role",
@@ -158,14 +150,13 @@ wss.on("connection", (ws, req) => {
   ws.send(
     JSON.stringify({
       type: "connection_established",
-      message: "Connected to SmartChair Server",
       serverTime: new Date().toISOString(),
     })
   );
 
-  // =========================
+  // ======================
   // 📥 MESSAGE HANDLER
-  // =========================
+  // ======================
   ws.on("message", (msg) => {
     console.log("🔥 RAW MESSAGE:", msg.toString());
 
@@ -176,8 +167,8 @@ wss.on("connection", (ws, req) => {
         `📥 Received from ${clientIP}:`,
         data.device_id || data.type || "unknown"
       );
-    } catch (e) {
-      console.warn(`⚠️ Invalid JSON received from ${clientIP}`);
+    } catch (err) {
+      console.warn(`⚠️ Invalid JSON from ${clientIP}`);
       return;
     }
 
@@ -241,12 +232,12 @@ wss.on("connection", (ws, req) => {
       return;
     }
 
-    console.warn(`⚠️ Unknown message type from ${clientIP}`, data);
+    console.warn(`⚠️ Unknown message from ${clientIP}`, data);
   });
 
-  // =========================
+  // ======================
   // ❌ DISCONNECT
-  // =========================
+  // ======================
   ws.on("close", () => {
     console.log(`❌ WebSocket client disconnected: ${clientIP}`);
 
@@ -268,6 +259,25 @@ wss.on("connection", (ws, req) => {
 });
 
 // ==============================
+// ❤️ GLOBAL HEARTBEAT (CLOUDFLARE SAFE)
+// ==============================
+const heartbeatInterval = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) {
+      console.log("💀 Terminating dead WebSocket");
+      return ws.terminate();
+    }
+
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, 25000); // < 30s required by Cloudflare
+
+wss.on("close", () => {
+  clearInterval(heartbeatInterval);
+});
+
+// ==============================
 // 🌐 START SERVER
 // ==============================
 const PORT = process.env.PORT || 3000;
@@ -283,7 +293,8 @@ server.listen(PORT, "0.0.0.0", () => {
 // 🛑 GRACEFUL SHUTDOWN
 // ==============================
 process.on("SIGTERM", () => {
-  console.log("🛑 SIGTERM received, closing server...");
+  console.log("🛑 SIGTERM received, shutting down...");
+  clearInterval(heartbeatInterval);
   server.close(() => {
     console.log("✅ Server closed");
     process.exit(0);
