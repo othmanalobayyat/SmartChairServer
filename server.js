@@ -71,7 +71,10 @@ app.get("/", (req, res) => {
 // 🧵 WEBSOCKET SERVER
 // ==============================
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({
+  server,
+  path: "/ws",
+});
 
 let chairSocket = null;
 let cameraSocket = null;
