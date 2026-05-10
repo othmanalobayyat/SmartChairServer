@@ -157,7 +157,7 @@ wss.on("connection", (ws, req) => {
   // ======================
   // 📥 MESSAGE HANDLER
   // ======================
-  ws.on("message", (msg) => {
+  ws.on("message", async (msg) => {
     console.log("🔥 RAW MESSAGE:", msg.toString());
 
     let data;
@@ -181,6 +181,28 @@ wss.on("connection", (ws, req) => {
         console.log("🪑 Chair device registered");
       }
 
+      // FIX 1: Registration message — don't broadcast null chair_data
+      if (data.state === "online") {
+        broadcast({ type: "chair_connected", timestamp: Date.now() });
+        return;
+      }
+
+      // FIX 3: Persist pressure frame to local DB
+      if (data.state === "active" && data.pressures) {
+        try {
+          if (typeof PressureFrame !== "undefined" && PressureFrame !== null) {
+            await PressureFrame.create({
+              t_ms: Date.now(),
+              pressures: data.pressures,
+              posture_label: data.posture || null,
+              raw_loadcell_ok: true,
+            });
+          }
+        } catch (e) {
+          // silent — don't crash WebSocket on DB error
+        }
+      }
+
       if (data.state === "idle") {
         broadcast({
           type: "chair_idle",
@@ -191,7 +213,7 @@ wss.on("connection", (ws, req) => {
           type: "chair_data",
           pressures: data.pressures || null,
           posture: data.posture || null,
-          battery: data.battery || null,
+          battery: data.battery != null ? data.battery : null, // FIX 2: 0% won't become null
           state: data.state || "active",
           timestamp: Date.now(),
         });
