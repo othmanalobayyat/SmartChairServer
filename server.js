@@ -91,6 +91,30 @@ app.use("/api/session", sessionRoutes);
 app.use("/api/stats", statsRoutes);
 
 // ==============================
+// 📷 CAMERA PAIRING (reverse QR flow)
+// ==============================
+// Mobile scans QR shown on desktop → POSTs here → desktop polls pair-status
+const pendingPairings = new Map(); // camera_id → { user_id, user_name, ts }
+
+app.post("/api/camera/pair", (req, res) => {
+  const { camera_id, user_id, user_name } = req.body;
+  if (!camera_id || !user_id) {
+    return res.status(400).json({ error: "camera_id and user_id required" });
+  }
+  pendingPairings.set(camera_id, { user_id, user_name: user_name || "", ts: Date.now() });
+  console.log(`📷 Pairing request: camera=${camera_id} user=${user_id}`);
+  res.json({ ok: true });
+});
+
+app.get("/api/camera/pair-status", (req, res) => {
+  const { camera_id } = req.query;
+  const pairing = pendingPairings.get(camera_id);
+  if (!pairing) return res.json({ pending: false });
+  pendingPairings.delete(camera_id); // consume once — desktop retrieves it once
+  res.json({ pending: true, user_id: pairing.user_id, user_name: pairing.user_name });
+});
+
+// ==============================
 // 🔧 SERVER ROLE
 // ==============================
 const SERVER_ROLE = process.env.SERVER_ROLE || "primary";
