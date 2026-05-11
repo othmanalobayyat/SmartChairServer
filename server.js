@@ -211,6 +211,7 @@ wss.on("connection", (ws, req) => {
       if (data.state === "idle") {
         broadcast({
           type: "chair_idle",
+          battery: data.battery != null ? data.battery : null,
           timestamp: Date.now(),
         });
       } else {
@@ -235,7 +236,7 @@ wss.on("connection", (ws, req) => {
         console.log("🎥 Camera device registered");
       }
 
-      broadcast({ type: "camera_status", active: true });
+      broadcast({ type: "camera_status", active: true, monitoring: true });
 
       broadcast({
         type: "camera_frame",
@@ -257,6 +258,13 @@ wss.on("connection", (ws, req) => {
       if (cameraSocket && cameraSocket.readyState === WebSocket.OPEN) {
         cameraSocket.send(JSON.stringify(data));
         console.log(`📷 Camera control: ${data.action}`);
+        // Reflect monitoring state to all clients so the mobile knows the
+        // camera is still connected even when monitoring is stopped
+        if (data.action === "stop") {
+          broadcast({ type: "camera_status", active: true, monitoring: false });
+        } else if (data.action === "start") {
+          broadcast({ type: "camera_status", active: true, monitoring: true });
+        }
       } else {
         ws.send(
           JSON.stringify({
@@ -279,6 +287,7 @@ wss.on("connection", (ws, req) => {
 
     if (ws === chairSocket) {
       chairSocket = null;
+      broadcast({ type: "chair_disconnected", timestamp: Date.now() });
       console.log("🪑 Chair device disconnected");
     }
 
