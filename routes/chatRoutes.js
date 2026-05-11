@@ -1,6 +1,7 @@
 // routes/chatRoutes.js
 const express = require("express");
 const router = express.Router();
+const auth = require("../middleware/auth");
 
 // ── Readable English labels for Arabic posture codes ──────────────
 const POSTURE_EN = {
@@ -40,7 +41,7 @@ function localFallback({ posture, sessionMinutes, attention, drowsy }) {
 }
 
 // ── POST /chat ────────────────────────────────────────────────────
-router.post("/", async (req, res) => {
+router.post("/", auth, async (req, res) => {
   const { message, posture, sessionMinutes, attention, drowsy } = req.body;
 
   if (!process.env.GROQ_API_KEY) {

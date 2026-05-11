@@ -63,7 +63,12 @@ const app = express();
 
 app.use(
   cors({
-    origin: "*",
+    origin: [
+      "http://localhost:3000",
+      "http://192.168.1.29:3000",
+      "https://smartchair.posturic.online",
+      "https://smartchairserver-production.up.railway.app",
+    ],
     credentials: true,
   })
 );
@@ -158,7 +163,7 @@ wss.on("connection", (ws, req) => {
   // 📥 MESSAGE HANDLER
   // ======================
   ws.on("message", async (msg) => {
-    console.log("🔥 RAW MESSAGE:", msg.toString());
+    // console.log("🔥 RAW MESSAGE:", msg.toString()); // disabled in production
 
     let data;
     try {
@@ -236,8 +241,10 @@ wss.on("connection", (ws, req) => {
         type: "camera_frame",
         attention_level: data.attention_level,
         is_present: data.is_present,
-        drowsy: data.drowsy,
+        drowsy: data.drowsy ?? data.drowsiness ?? false,
         working_duration_seconds: data.working_duration_seconds,
+        posture_label: data.posture_label || null,
+        posture_correct: data.posture_correct ?? null,
         timestamp: Date.now(),
       });
       return;
