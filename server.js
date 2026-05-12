@@ -267,6 +267,14 @@ wss.on("connection", (ws, req) => {
         console.log("🎥 Camera device registered");
       }
 
+      // Heartbeat sent by desktop when monitoring is paused — register the
+      // socket and tell mobile the camera is connected but not monitoring.
+      if (data.state === "online") {
+        broadcast({ type: "camera_status", active: true, monitoring: false });
+        return;
+      }
+
+      // Full frame — camera is actively monitoring.
       broadcast({ type: "camera_status", active: true, monitoring: true });
 
       broadcast({
