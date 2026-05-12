@@ -98,19 +98,26 @@ const pendingPairings = new Map(); // camera_id → { user_id, user_name, ts }
 
 app.post("/api/camera/pair", (req, res) => {
   const { camera_id, user_id, user_name } = req.body;
+  console.log(`📷 [pair] body received: camera_id=${camera_id} user_id=${user_id} user_name=${user_name}`);
   if (!camera_id || !user_id) {
+    console.warn(`📷 [pair] REJECTED — missing field. body=${JSON.stringify(req.body)}`);
     return res.status(400).json({ error: "camera_id and user_id required" });
   }
   pendingPairings.set(camera_id, { user_id, user_name: user_name || "", ts: Date.now() });
-  console.log(`📷 Pairing request: camera=${camera_id} user=${user_id}`);
+  console.log(`📷 [pair] stored OK. pendingPairings size=${pendingPairings.size} keys=[${[...pendingPairings.keys()].join(",")}]`);
   res.json({ ok: true });
 });
 
 app.get("/api/camera/pair-status", (req, res) => {
   const { camera_id } = req.query;
+  console.log(`📷 [pair-status] poll for camera_id=${camera_id} — pendingPairings size=${pendingPairings.size} keys=[${[...pendingPairings.keys()].join(",")}]`);
   const pairing = pendingPairings.get(camera_id);
-  if (!pairing) return res.json({ pending: false });
+  if (!pairing) {
+    console.log(`📷 [pair-status] NOT FOUND for camera_id=${camera_id}`);
+    return res.json({ pending: false });
+  }
   pendingPairings.delete(camera_id); // consume once — desktop retrieves it once
+  console.log(`📷 [pair-status] FOUND + consumed. Returning user_id=${pairing.user_id}`);
   res.json({ pending: true, user_id: pairing.user_id, user_name: pairing.user_name });
 });
 
